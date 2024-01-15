@@ -1,0 +1,97 @@
+#!/usr/bin/python3
+# [MIT] Copyright (C) 2024  Michel Novus
+# `show-clock` muestra una notificación con la fecha y hora actual en pantalla
+# durante 10 segundos o hasta que se ejecuta el programa nuevamente.
+
+import sys
+import shlex
+from os import getuid, getpid, makedirs, kill
+from os.path import exists
+from signal import SIGTERM
+from time import time, sleep, strftime
+from subprocess import run
+
+CACHE_ROOT = f"/run/user/{getuid()}/desktop-utils"
+CACHE_SELF = f"{CACHE_ROOT}/show-clock.cache"
+NOTIFY_TIMEOUT = 1100  # Tiempo en milisegundos
+CICLES = 10  # Segundos activos de las notificaciones
+
+
+def main():
+    if not exists(CACHE_ROOT):
+        makedirs(CACHE_ROOT, 0o750, True)
+    cache = CacheData(CACHE_SELF)
+    if exists(CACHE_SELF):
+        cache.read()
+        current_time = time()
+        if current_time < cache.latest_run + NOTIFY_TIMEOUT // 1000:
+            kill(cache.process_pid, SIGTERM)
+            notify(cache.title, cache.body, 10, cache.notify_id)
+            sys.exit(0)
+    cache.process_pid = getpid()
+    replace_id = None
+    for cicle in range(CICLES):
+        cache.title, day, date = strftime("%H:%M:%S %A %Y-%m-%d").split(" ")
+        cache.body = f"{date}\n{day.capitalize()}"
+        cache.notify_id = notify(
+            cache.title, cache.body, NOTIFY_TIMEOUT, replace_id
+        )
+        cache.latest_run = time()
+        cache.write()
+        replace_id = cache.notify_id
+        sleep(1)
+
+
+class CacheData(object):
+    """Representa el caché en memoria persistente entre procesos."""
+
+    def __init__(self, cache_file: str) -> None:
+        self._cache_file = cache_file
+        self.notify_id: int
+        self.process_pid: int
+        self.latest_run: float
+        self.title: str
+        self.body: str
+
+    def read(self) -> None:
+        """Carga los datos desde el caché persistente."""
+        with open(self._cache_file, "rt") as cache:
+            self.notify_id = int(cache.readline())
+            self.process_pid = int(cache.readline())
+            self.latest_run = float(cache.readline())
+            self.title = cache.readline().strip()
+            self.body = cache.readline().replace("/n", "\n")
+
+    def write(self) -> None:
+        """Guarda los datos en caché persistente."""
+        with open(self._cache_file, "wt") as cache:
+            cache.write(f"{str(self.notify_id)}\n")
+            cache.write(f"{str(self.process_pid)}\n")
+            cache.write(f"{str(self.latest_run)}\n")
+            cache.write(f"{self.title}\n")
+            body = self.body.replace("\n", "/n")
+            cache.write(f"{body}\n")
+
+
+def notify(
+    title: str = "TITLE",
+    body: str = "BODY",
+    timeout: int = 1000,
+    replace_id: int | None = None,
+) -> int:
+    """Muestra una notificación en pantalla y retorna su identificador."""
+    if replace_id is None:
+        replace_field = ""
+    else:
+        replace_field = f"-r {replace_id}"
+    command = shlex.split(
+        f"/usr/bin/notify-send -p -a {sys.argv[0]} "
+        f"-u normal -t {timeout} {replace_field} "
+        f"'{title}' '{body}'"
+    )
+    process = run(command, capture_output=True, text=True)
+    return int(process.stdout)
+
+
+if __name__ == "__main__":
+    main()
