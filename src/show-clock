@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# [MIT] Copyright (C) 2024  Michel Novus
+# [MIT License] Copyright (c) 2024  Michel Novus
 # `show-clock` muestra una notificación con la fecha y hora actual en pantalla
 # durante 10 segundos o hasta que se ejecuta el programa nuevamente.
 
